@@ -1,0 +1,236 @@
+#! /usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+pylogrotate is a simple implementation of logrotate (ease administration
+of systems that generate large numbers of log files) on Python3
+"""
+
+import os
+import sys
+import gzip
+import glob
+import shutil
+import getpass
+import subprocess
+
+
+def check_surepuser() -> None:
+    """
+    check run script as root
+    """
+    if getpass.getuser() != 'root':
+        print('logrotate.py can only be run as root')
+        raise SystemExit
+
+
+def check_config(configrc: str) -> None:
+    """
+    checking for configuration file
+    """
+    if not os.path.isfile(configrc):
+        with open(configrc, 'w') as logrotaterc:
+            config_default = '''\
+### location for save old logs
+SAVE_DIR=/root/pylogrotate
+### clear logs after rotation (true, false)
+CLEAR_LOGS=false
+### rotate empty logs (true, false)
+ROTATE_EMPTY_LOGS=true
+
+### logs for rotation: full_path_to_log,max_count_old_logs[,post_rotate_command]
+### (if log does not exist it will be skipped)
+/var/log/cron,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) \
+2>/dev/null || true
+/var/log/debug,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) \
+2>/dev/null || true
+/var/log/mail,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) \
+2>/dev/null || true
+/var/log/messages,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) \
+2>/dev/null || true
+/var/log/secure,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) \
+2>/dev/null || true
+/var/log/spooler,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) \
+2>/dev/null || true
+/var/log/syslog,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) \
+2>/dev/null || true
+
+## wtmp, btmp
+/var/log/wtmp,3
+/var/log/btmp,3
+
+## boot
+/var/log/boot,3
+
+## dmesg
+/var/log/dmesg,3
+
+## httpd
+/var/log/httpd/error_log,3,/etc/rc.d/rc.httpd restart 2>/dev/null
+/var/log/httpd/access_log,3,/etc/rc.d/rc.httpd restart 2>/dev/null
+
+## nginx
+/var/log/nginx/access.log,3,/etc/rc.d/rc.nginx rotate &>/dev/null
+/var/log/nginx/error.log,3,/etc/rc.d/rc.nginx rotate &>/dev/null
+
+## mysql
+/var/lib/mysql/mysqld.log,3,/usr/bin/mysqladmin ping &>/dev/null
+/var/lib/mysql/slack.err,3,/usr/bin/mysqladmin ping &>/dev/null
+
+## postgresql
+/var/log/postgresql-9.6,3
+
+## preload
+/var/log/preload,3,/bin/kill -HUP $(/sbin/pidof preload 2>/dev/null) \
+2> /dev/null || true
+
+## ConsoleKit
+/var/log/ConsoleKit/history,3
+'''
+            print(config_default, end='', file=logrotaterc)
+
+        if not logrotaterc.closed:
+            logrotaterc.close()
+
+
+def get_config(configrc: str) -> dict:
+    """
+    write /root/.logrotaterc
+    """
+    config = {'logs': []}
+    with open(configrc) as logrotaterc:
+        for line in logrotaterc:
+            if not line.startswith('#') and line != '\n':
+                if not line.startswith('/'):
+                    parts = line.split('=')
+                    config[parts[0].strip()] = parts[1].strip()
+                elif line.find(',') != -1:
+                    config['logs'].append(line.strip())
+
+    if not logrotaterc.closed:
+        logrotaterc.close()
+
+    return config
+
+
+def rotate(log: str, dest: str, num: int) -> None:
+    """
+    compress logfile in destination directory
+    """
+    with open(log, 'rb') as f_in:
+        with gzip.open('{0}/{1}.{2}.gz'.format(dest,
+                                               os.path.basename(log),
+                                               num), 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+    if not f_in.closed:
+        f_in.close()
+
+    if not f_out.closed:
+        f_out.close()
+
+
+def get_log_number(log: str) -> int:
+    """
+    return number of saved log
+    """
+    return int(log.split('.')[-2])
+
+
+def main() -> None:
+    """
+    asdf
+    """
+    check_surepuser()
+    logrotaterc = '/root/.pylogrotaterc'
+    check_config(logrotaterc)
+    config = get_config(logrotaterc)
+    commands = []
+
+    for log in config['logs']:
+        logparts = log.split(',')
+        log_full_path = logparts[0].strip()
+        count_max_saves = logparts[1].strip()
+        # if count saves for log is not a number
+        if not count_max_saves.isdigit():
+            continue
+        count_max_saves = int(count_max_saves)
+
+        # if log file not exist
+        if not os.path.isfile(log_full_path):
+            continue
+        # log file size
+        log_size = os.path.getsize(log_full_path)
+        # if log is empty and ROTATE_EMPTY_LOGS=false
+        if not log_size and config['ROTATE_EMPTY_LOGS'] == "false":
+            continue
+
+        log_name = os.path.basename(log_full_path)
+        log_dir = os.path.dirname(log_full_path)
+        if log_dir.startswith('/var/'):
+            log_dir = log_dir.replace('/var', '')
+
+        save_dir = config['SAVE_DIR'].rstrip('/')
+        destination = '{0}{1}'.format(save_dir, log_dir)
+
+        if not os.path.exists(destination):
+            os.makedirs(destination)
+
+        # list of saved logs
+        saved_logs = [f for f in glob.glob('{0}/{1}.*.gz'.format(destination,
+                                                                 log_name))]
+        count_saved_logs = len(saved_logs)
+
+        if not count_max_saves:
+            # if saved logs exist - remove them
+            if count_saved_logs:
+                for slog in saved_logs:
+                    os.remove(slog)
+
+            continue
+
+        if not count_saved_logs:
+            rotate(log_full_path, destination, 1)
+        elif count_saved_logs < count_max_saves:
+            rotate(log_full_path, destination, count_saved_logs + 1)
+        else:
+            # sort list of logs by log number
+            saved_logs.sort(key=get_log_number)
+
+            num = 1
+            for i in range(count_saved_logs):
+                # number of log file
+                # log_num = get_log_number(slog)
+                slog = saved_logs[i]
+                if i <= count_saved_logs - count_max_saves:
+                    os.remove(slog)
+                else:
+                    os.rename(slog,
+                              slog.replace(
+                                  '.{0}.gz'.format(get_log_number(slog)),
+                                  '.{0}.gz'.format(num)
+                              ))
+                    num += 1
+
+            rotate(log_full_path, destination, count_max_saves)
+
+        if len(logparts) == 3:
+            commands.append(logparts[2].strip())
+
+        # clear source log file if needed
+        if config['CLEAR_LOGS'] == "true":
+            open(log_full_path, 'w').close()
+
+    # delete dublicate commands
+    uniqcommands = []
+    for command in commands:
+        if command not in uniqcommands:
+            uniqcommands.append(command)
+
+    # run commands once
+    for cmd in uniqcommands:
+        subprocess.call(cmd, shell=True)
+
+
+if __name__ == '__main__':
+    sys.exit(main())
