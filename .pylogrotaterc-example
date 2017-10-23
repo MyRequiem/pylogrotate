@@ -1,0 +1,69 @@
+### location for save old logs
+SAVE_DIR=/root/pylogrotate
+### clear logs after rotation (true, false)
+CLEAR_LOGS=true
+### rotate empty logs (true, false)
+ROTATE_EMPTY_LOGS=false
+
+################################################################################
+### logs for rotation: full_path_to_log,max_count_old_logs[,post_rotate_command]
+### If log does not exist it will be skipped.
+################################################################################
+
+/var/log/cron,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/debug,2,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/mail,1,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/messages,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/secure,1,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/spooler,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/syslog,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/critical,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+
+
+## all messages with the priority 'crit', except for any kernel message
+
+## lastlog, faillog
+/var/log/lastlog,3,/bin/kill -HUP $(cat /var/run/syslogd.pid 2>/dev/null) 2>/dev/null || true
+/var/log/faillog,3
+
+## wtmp, btmp
+/var/log/wtmp,1
+/var/log/btmp,1
+
+## boot
+/var/log/boot,3
+
+## dmesg
+/var/log/dmesg,3
+
+## httpd
+# /var/log/httpd/error_log,3,/etc/rc.d/rc.httpd restart 2>/dev/null
+# /var/log/httpd/access_log,3,/etc/rc.d/rc.httpd restart 2>/dev/null
+
+## nginx
+/var/log/nginx/access.log,3,/etc/rc.d/rc.nginx rotate &>/dev/null
+/var/log/nginx/error.log,3,/etc/rc.d/rc.nginx rotate &>/dev/null
+
+## mysql
+# /var/lib/mysql/mysqld.log,3,/usr/bin/mysqladmin ping &>/dev/null
+# /var/lib/mysql/slack.err,3,/usr/bin/mysqladmin ping &>/dev/null
+
+## postgresql
+/var/log/postgresql-9.6,3
+
+## preload
+/var/log/preload,1,/bin/kill -HUP $(/sbin/pidof preload 2>/dev/null) 2>/dev/null || true
+
+## ConsoleKit
+# /var/log/ConsoleKit/history,3
+
+## kernel
+/var/log/kernel,3
+/var/log/kernel-crit,3
+/var/log/kernel-info,3
+
+## php-fpm
+/var/log/php-fpm,1,/etc/rc.d/rc.php-fpm restart &>/dev/null
+
+## smartd
+/var/log/smartd,3
